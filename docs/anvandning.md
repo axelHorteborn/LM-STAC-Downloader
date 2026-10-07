@@ -9,7 +9,7 @@ fungerar och vad man gör när något inte fungerar.
 
 Du behöver:
 
-* **QGIS 3.44 eller senare.**
+* **QGIS 3.44 eller senare**, även QGIS 4.
 * **Åtkomstnycklar** (Consumer Key och Consumer Secret) från Lantmäteriets
   [API-manager](https://apimanager.lantmateriet.se/).
 * Att nycklarna hör till ett **systemkonto som har beställt behörigheten** på Geotorget:

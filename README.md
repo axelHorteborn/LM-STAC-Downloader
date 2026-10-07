@@ -30,7 +30,7 @@ Point clouds, vector data and NGP catalogues are not included. For NGP, see
 Download the zip from [Releases](https://github.com/matself/LM-STAC-Downloader/releases) and
 use *Plugins → Manage and Install Plugins → Install from ZIP*.
 
-Requires **QGIS 3.44 or later** (the OAuth2 Client Credentials flow).
+Requires **QGIS 3.44 or later** (the OAuth2 Client Credentials flow). QGIS 4 (Qt6) is supported.
 
 ## Getting started
 
@@ -111,7 +111,7 @@ does not store any credentials itself; it uses QGIS' authentication manager.
 * The clip follows the area you searched on, not the map view at download time.
 * Elevation search returns both `mhm-*` (2.5 km tiles, roughly 8 MB) and `dtm-cog` (10 km tiles, roughly
   290 MB).
-* The plugin is tested against QGIS 3.44 (Qt5). QGIS 4 / Qt6 has not been tested.
+* The plugin is tested against QGIS 3.44 (Qt5) and QGIS 4.0 (Qt6).
 
 ## Development
 

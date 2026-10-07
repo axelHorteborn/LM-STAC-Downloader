@@ -4,11 +4,15 @@ QgsFileDownloader streams to disk, which matters here: one orthophoto file is
 hundreds of MB. It runs on the main thread's event loop, so the UI stays
 responsive and progress arrives as signals. Files are written to `<name>.part`
 and renamed on success, so a cancelled download never looks complete.
+
+Vector data comes as zipped GeoPackages; those are unpacked next to the zip.
 """
 
 from __future__ import annotations
 
 import os
+import shutil
+import zipfile
 from pathlib import Path
 
 from qgis.core import QgsFileDownloader
@@ -19,6 +23,23 @@ from .items import StacItem
 
 def target_path(output_dir: Path, item: StacItem) -> Path:
     return output_dir / item.collection / item.filename
+
+
+def unpack(zip_path: Path, fresh: bool) -> list[str]:
+    """Unpack `zip_path` into a folder of the same name; return its GeoPackages.
+
+    An existing folder is kept unless `fresh` (the zip was just downloaded).
+    Returns the zip itself if it holds no GeoPackage.
+    """
+    folder = zip_path.with_suffix("")
+    if fresh or not folder.exists():
+        part = folder.with_name(folder.name + ".part")
+        shutil.rmtree(part, ignore_errors=True)
+        with zipfile.ZipFile(zip_path) as archive:
+            archive.extractall(part)  # strips absolute paths and ".." from member names
+        shutil.rmtree(folder, ignore_errors=True)
+        os.replace(part, folder)
+    return sorted(str(p) for p in folder.rglob("*.gpkg")) or [str(zip_path)]
 
 
 class DownloadQueue(QObject):
@@ -58,7 +79,7 @@ class DownloadQueue(QObject):
         item = self.items[self._index]
         final = target_path(self.output_dir, item)
         if final.exists() and (item.size is None or final.stat().st_size == item.size):
-            self.paths.append(str(final))
+            self._add_result(item, final, fresh=False)
             self.progress.emit(self._index + 1, len(self.items), item.filename, 1, 1)
             self._next()
             return
@@ -73,28 +94,43 @@ class DownloadQueue(QObject):
             )
         )
         downloader.downloadCompleted.connect(
-            lambda _url, part=part, final=final: self._completed(part, final)
+            lambda _url, item=item, part=part, final=final: self._completed(item, part, final)
         )
         downloader.downloadError.connect(lambda errors, item=item: self._error(item, errors))
         downloader.downloadCanceled.connect(lambda part=part: self._discard(part))
         downloader.downloadExited.connect(self._exited)
         downloader.startDownload()
 
-    def _completed(self, part: Path, final: Path) -> None:
+    def _completed(self, item: StacItem, part: Path, final: Path) -> None:
         os.replace(part, final)
-        self.paths.append(str(final))
+        self._add_result(item, final, fresh=True)
+
+    def _add_result(self, item: StacItem, path: Path, fresh: bool) -> None:
+        if item.is_raster:
+            self.paths.append(str(path))
+            return
+        try:
+            self.paths.extend(unpack(path, fresh))
+        except (OSError, zipfile.BadZipFile) as e:
+            self.failures.append(f"{item.filename}: kunde inte packas upp: {e}")
 
     def _error(self, item: StacItem, errors: list) -> None:
         message = "; ".join(str(e) for e in errors)
         if "Forbidden" in message:
-            # Searching works for any valid application, but the download host also
-            # checks the entitlement, which is ordered on Geotorget per system account.
+            # The login was accepted, but the download host also checks the
+            # entitlement, which is ordered on Geotorget per (system) account.
             message = (
-                "åtkomst nekad. Sökningen fungerade, men den valda autentiseringen "
-                "får inte hämta filer. Kontrollera att nycklarna hör till ett "
-                "systemkonto som har beställt Ortofoto Nedladdning eller "
-                "Markhöjdmodell Nedladdning (produktion) på Geotorget, och att "
-                "applikationen prenumererar på STAC-bild respektive STAC-hojd."
+                "åtkomst nekad. Inloggningen godtogs, men kontot får inte hämta de här "
+                "filerna. Kontrollera på Geotorget att kontot (för organisationer "
+                "systemkontot) har beställt nedladdningstjänsten för produkten, till "
+                "exempel Ortofoto Nedladdning eller Markhöjdmodell Nedladdning, och "
+                "godkänt användningsvillkoren. Med API-nycklar ska applikationen "
+                "dessutom prenumerera på STAC-tjänsten."
+            )
+        elif "authentication" in message.lower() or "Unauthorized" in message:
+            message = (
+                "inloggningen godtogs inte (HTTP 401). Kontrollera användarnamn och "
+                "lösenord för Geotorget, eller Consumer Key och Consumer Secret."
             )
         self.failures.append(f"{item.filename}: {message}")
 

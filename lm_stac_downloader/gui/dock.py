@@ -12,6 +12,8 @@ from qgis.core import (
     QgsGeometry,
     QgsPointXY,
     QgsProject,
+    QgsProviderRegistry,
+    QgsProviderSublayerDetails,
     QgsRasterLayer,
     QgsRectangle,
     QgsSettings,
@@ -330,6 +332,7 @@ class StacDock(QDockWidget):
         service = SERVICES[self.service_combo.currentData()]
         self.year_widget.setVisible(service.has_years)
         self.year_label.setVisible(service.has_years)
+        self.clip_check.setVisible(service.raster)
 
     # --- area ------------------------------------------------------------
 
@@ -402,13 +405,13 @@ class StacDock(QDockWidget):
     def _start_search(self) -> None:
         if self._search_task:
             return
-        authcfg = self._authcfg_or_warn()
+        # The catalogues are open, so searching needs no login; downloading does.
         body = self._search_body()
-        if not authcfg or body is None:
+        if body is None:
             return
         self._save_settings()
 
-        task = SearchTask(search_base_url(self.service_combo.currentData()), authcfg, body)
+        task = SearchTask(search_base_url(self.service_combo.currentData()), body)
         task.status.connect(self.search_status.setText)
         task.completed.connect(self._on_search_completed)
         task.failed.connect(self._on_search_failed)
@@ -442,10 +445,11 @@ class StacDock(QDockWidget):
         self.tree.setSortingEnabled(False)
         self.tree.clear()
         self._rows = {}
+        self.tree.headerItem().setText(COL_NAME, "Ruta" if all(i.is_raster for i in self.items) else "Namn")
         for item in self.items:
             row = _SortableItem(
                 [
-                    item.id,
+                    item.label,
                     item.collection,
                     item.kind,
                     str(item.year or ""),
@@ -586,7 +590,8 @@ class StacDock(QDockWidget):
             return
 
         jobs = None
-        if self.clip_check.isChecked():
+        # Vector data comes as whole zipped files and cannot be clipped.
+        if self.clip_check.isChecked() and all(i.is_raster for i in items):
             jobs = self._clip_jobs(items)
             if jobs is None:
                 return
@@ -689,11 +694,8 @@ class StacDock(QDockWidget):
 
         if self.add_to_project.isChecked():
             for path in paths:
-                layer = QgsRasterLayer(path, Path(path).stem)
-                if layer.isValid():
-                    QgsProject.instance().addMapLayer(layer)
-                else:
-                    failures.append(f"{Path(path).name}: kunde inte öppnas som raster")
+                if not self._add_to_project(path):
+                    failures.append(f"{Path(path).name}: kunde inte öppnas som lager")
 
         if failures:
             self._message(
@@ -704,6 +706,29 @@ class StacDock(QDockWidget):
             self._message(f"Avbrutet. {len(paths)} filer hann hämtas.", Qgis.MessageLevel.Warning)
         else:
             self._message(f"{len(paths)} filer hämtade.", Qgis.MessageLevel.Success)
+
+    @staticmethod
+    def _add_to_project(path: str) -> bool:
+        """Add the file to the project; False if it could not be opened."""
+        project = QgsProject.instance()
+        name = Path(path).stem
+        if Path(path).suffix.lower() in (".tif", ".tiff"):
+            layer = QgsRasterLayer(path, name)
+            if not layer.isValid():
+                return False
+            project.addMapLayer(layer)
+            return True
+        # A GeoPackage holds several layers: add them all in a group named after the file.
+        options = QgsProviderSublayerDetails.LayerOptions(project.transformContext())
+        layers = [details.toLayer(options) for details in QgsProviderRegistry.instance().querySublayers(path)]
+        layers = [layer for layer in layers if layer and layer.isValid()]
+        if not layers:
+            return False
+        group = project.layerTreeRoot().insertGroup(0, name)
+        for layer in layers:
+            project.addMapLayer(layer, False)
+            group.addLayer(layer)
+        return True
 
 
 def _item_geometry(item: StacItem) -> QgsGeometry:

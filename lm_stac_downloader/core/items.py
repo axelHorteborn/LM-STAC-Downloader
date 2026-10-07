@@ -1,4 +1,4 @@
-"""Light-weight view of a STAC item with a downloadable raster asset."""
+"""Light-weight view of a STAC item with a downloadable raster or vector asset."""
 
 from __future__ import annotations
 
@@ -21,7 +21,18 @@ class StacItem:
     cog: bool = False
     spectral: str | None = None  # e.g. "rgb" or "cir" for orthophotos
     model: str | None = None  # e.g. "markhöjdmodell" for elevation models
-    changed: str | None = None  # date the data was last changed (elevation models)
+    changed: str | None = None  # date the data was last changed (elevation models, vector data)
+    title: str | None = None  # e.g. "Byggnader för Göteborgs kommun" (vector data)
+    media_type: str = ""
+
+    @property
+    def is_raster(self) -> bool:
+        return "tiff" in self.media_type
+
+    @property
+    def label(self) -> str:
+        """Name to show: the tile id, or the title for vector data (whose ids are codes)."""
+        return self.title or self.id
 
     @property
     def filename(self) -> str:
@@ -51,19 +62,27 @@ class StacItem:
 
 
 def parse_item(feature: dict[str, Any]) -> StacItem | None:
-    """Return None for items without a downloadable raster `data` asset.
+    """Return None for items without a downloadable `data` asset we handle.
 
-    stac-hojd also serves point clouds (COPC/LAZ), which are not rasters.
+    Rasters are GeoTIFFs; vector data (stac-vektor) are zipped GeoPackages.
+    stac-hojd also serves point clouds (COPC/LAZ), which are left out.
     """
     data = (feature.get("assets") or {}).get("data")
     if not data or not data.get("href"):
         return None
-    if "tiff" not in (data.get("type") or "").lower():
+    media_type = (data.get("type") or "").lower()
+    raster = "tiff" in media_type
+    # Exact match: point clouds are "application/vnd.laszip+copc".
+    if not raster and not media_type.startswith("application/zip"):
         return None
     props = feature.get("properties") or {}
     year = props.get("flygar")
-    if year is None:
+    if year is None and raster:
+        # Vector datetimes are update times (or UTC period starts), not data years.
         year = _year(props.get("datetime") or props.get("start_datetime"))
+    changed = props.get("andringsdatum")
+    if changed is None and not raster:
+        changed = (props.get("updated") or "")[:10] or None
     return StacItem(
         id=feature["id"],
         collection=feature.get("collection", ""),
@@ -78,7 +97,9 @@ def parse_item(feature: dict[str, Any]) -> StacItem | None:
         cog="cloud-optimized" in (data.get("type") or "").lower(),
         spectral=props.get("spektraltyp"),
         model=props.get("hojdmodelltyp"),
-        changed=props.get("andringsdatum"),
+        changed=changed,
+        title=None if raster else props.get("title"),
+        media_type=media_type,
     )
 
 

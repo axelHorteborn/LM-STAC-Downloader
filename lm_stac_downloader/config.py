@@ -1,4 +1,4 @@
-"""Endpoints and constants for Lantmäteriet's raster STAC services."""
+"""Endpoints and constants for Lantmäteriet's STAC download services."""
 
 from __future__ import annotations
 
@@ -24,11 +24,14 @@ class Service:
     label: str
     path: str
     has_years: bool
+    # Raster tiles can be clipped; vector data comes as whole zipped GeoPackages.
+    raster: bool = True
 
 
 SERVICES = {
     "ortofoto": Service("ortofoto", "Ortofoto", "/stac-bild/v1", True),
     "hojd": Service("hojd", "Höjddata (markhöjdmodell)", "/stac-hojd/v1", False),
+    "vektor": Service("vektor", "Vektordata", "/stac-vektor/v1", False, raster=False),
 }
 DEFAULT_SERVICE = "ortofoto"
 

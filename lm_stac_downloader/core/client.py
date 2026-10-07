@@ -1,7 +1,9 @@
-"""STAC client for Lantmäteriets raster services.
+"""STAC client for Lantmäteriets download services.
 
-All requests go through QgsBlockingNetworkRequest with an authcfg, so QGIS
-handles tokens and proxy settings. Safe to use from a QgsTask worker thread.
+The catalogues are open: searching needs no login, only the files on the
+download host do. Sending no credentials here means a wrong or expired login
+cannot stop a search. Requests go through QgsBlockingNetworkRequest, so QGIS
+handles proxy settings. Safe to use from a QgsTask worker thread.
 """
 
 from __future__ import annotations
@@ -25,9 +27,8 @@ class StacError(Exception):
 
 
 class StacClient:
-    def __init__(self, base_url: str, authcfg: str, feedback: QgsFeedback | None = None):
+    def __init__(self, base_url: str, feedback: QgsFeedback | None = None):
         self.base_url = base_url.rstrip("/")
-        self.authcfg = authcfg
         self.feedback = feedback
 
     def _request(self, method: str, url: str, body: dict | None = None) -> dict[str, Any]:
@@ -35,7 +36,6 @@ class StacClient:
         request.setRawHeader(b"Accept", b"application/geo+json, application/json")
 
         blocking = QgsBlockingNetworkRequest()
-        blocking.setAuthCfg(self.authcfg)
 
         if method == "POST":
             request.setHeader(

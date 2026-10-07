@@ -1,4 +1,4 @@
-"""Background task: search a STAC service for raster items."""
+"""Background task: search a STAC service for downloadable items."""
 
 from __future__ import annotations
 
@@ -18,10 +18,9 @@ class SearchTask(QgsTask):
     failed = pyqtSignal(str)
     status = pyqtSignal(str)
 
-    def __init__(self, base_url: str, authcfg: str, search_body: dict[str, Any]):
+    def __init__(self, base_url: str, search_body: dict[str, Any]):
         super().__init__("Geodata: söker", QgsTask.Flag.CanCancel)
         self.base_url = base_url
-        self.authcfg = authcfg
         self.search_body = {**search_body, "limit": PAGE_LIMIT}
         self.items: list[StacItem] = []
         self.truncated = False
@@ -34,7 +33,7 @@ class SearchTask(QgsTask):
         super().cancel()
 
     def run(self) -> bool:
-        client = StacClient(self.base_url, self.authcfg, self._feedback)
+        client = StacClient(self.base_url, self._feedback)
         self._log(f"POST {self.base_url}/search {self.search_body}")
         self.status.emit("söker…")
         try:
